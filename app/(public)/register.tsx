@@ -8,8 +8,6 @@ const register = () =>{
     const {isLoaded, signUp, setActive} = useSignUp();
     const [emailAddress, setEmailAddrress] = useState('')
     const [password, setPassword] = useState('')
-    const [firstName, setFirstName] = useState('')
-    const [lastName, setLastName] = useState('')
     const [loading, setLoading] = useState(false)
     const [pendingVerification, setPendingVerification] = useState(false);
     const [code, setCode] = useState('');
@@ -24,8 +22,6 @@ const register = () =>{
             await signUp.create({
                 emailAddress,
                 password,
-                firstName,
-                lastName
             })
 
             await signUp.prepareEmailAddressVerification( {strategy: 'email_code'})
@@ -65,9 +61,6 @@ const register = () =>{
 
             {!pendingVerification && (
                 <>
-                    <TextInput style={styles.inputField} placeholderTextColor={"gray"} autoCapitalize="none" placeholder="First Name" value={firstName} onChangeText={setFirstName}/>
-                    <TextInput style={styles.inputField} placeholderTextColor={"gray"} placeholder="Last Name" value={lastName} onChangeText={setLastName} />
-
                     <TextInput style={styles.inputField} placeholderTextColor={"gray"} autoCapitalize="none" placeholder="syx@xyz.com" value={emailAddress} onChangeText={setEmailAddrress}/>
                     <TextInput style={styles.inputField} placeholderTextColor={"gray"} secureTextEntry={true} placeholder="password" value={password} onChangeText={setPassword} />
 
