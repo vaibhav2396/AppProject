@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
-import { getDatabase, ref, onValue, update } from 'firebase/database';
+import { getDatabase, ref, onValue, update, set } from 'firebase/database';
 import { useAuth } from '@clerk/clerk-expo';
 import firebaseApp from '../../firebaseConfig'
 
