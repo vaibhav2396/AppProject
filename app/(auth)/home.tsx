@@ -1,11 +1,13 @@
+
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList } from 'react-native';
 import { Pedometer } from 'expo-sensors';
-import { getDatabase, ref, update, get } from 'firebase/database';
-import { format } from 'date-fns'; // To format the date in 'YYYY-MM-DD'
 import { useAuth } from '@clerk/clerk-expo';
-import firebaseApp from '../../firebaseConfig';
 import CircularProgress from 'react-native-circular-progress-indicator';
+import { fetchStepsForToday, saveStepsToFirebase, fetchLast7DaysData } from '../utils/firebaseUtils';
+import { calculateCalories } from '../utils/stepTrackerUtils';
+import { getDatabase, ref, onValue } from 'firebase/database';
+import firebaseApp from '../../firebaseConfig';
 
 interface Last7DaysData {
   date: string;
@@ -14,146 +16,114 @@ interface Last7DaysData {
 }
 
 const Home = () => {
-  const [stepCount, setStepCount] = useState(0); // Tracks local session steps
+  const [stepCount, setStepCount] = useState(0);
   const [calories, setCalories] = useState(0);
+  const [userData, setUserData] = useState({
+    firstName: '',
+    lastName: '',
+    height: 0,
+    weight: 0,
+    stepGoal: 10,
+    weightGoal: 0,
+  });
   const [last7DaysData, setLast7DaysData] = useState<Last7DaysData[]>([]);
   const { userId } = useAuth();
-  const db = getDatabase(firebaseApp);
-  const stepGoal = 10000; // Set your daily step goal
 
-  // Calculate calories burned based on steps
-  const calculateCalories = (steps: number) => steps * 0.04;
-
-  // Fetch step count for the current day from Firebase
-  const fetchStepsForToday = async () => {
-    const currentDate = format(new Date(), 'yyyy-MM-dd');
-    const userStepsRef = ref(db, `steps/${userId}/${currentDate}`);
-
-    try {
-      const snapshot = await get(userStepsRef);
-      const data = snapshot.val();
-      if (data && data.steps) {
-        setStepCount(data.steps);
-        setCalories(data.calories);
-        console.log(`Fetched steps for today: ${data.steps}`);
-      } else {
-        setStepCount(0);
-        console.log('No steps data for today, starting fresh.');
-      }
-    } catch (error) {
-      console.error('Error fetching steps for today:', error);
-    }
-  };
-
-  // Save steps and calories to Firebase
-  const saveStepsToFirebase = (newSteps: number) => {
-    const currentDate = format(new Date(), 'yyyy-MM-dd');
-    const totalSteps = stepCount + newSteps;
-    const totalCalories = calculateCalories(totalSteps);
-
-    const userStepsRef = ref(db, `steps/${userId}/${currentDate}`);
-    update(userStepsRef, { steps: totalSteps, calories: totalCalories })
-      .then(() => {
-        console.log(`Updated steps in Firebase: ${totalSteps}`);
-        setStepCount(totalSteps);
-        setCalories(totalCalories);
-      })
-      .catch((error) => {
-        console.error('Error saving step data:', error);
-      });
-  };
-
-  // Initialize step tracking
   useEffect(() => {
-    const subscription = Pedometer.watchStepCount((result) => {
-      if (result && result.steps !== undefined) {
-        console.log('Step count result:', result);
-        saveStepsToFirebase(result.steps); // Save the new steps
-      } else {
-        console.error('Invalid step count result:', result);
+    const requestPermissions = async () => {
+      try {
+        const { status: motionStatus } = await Pedometer.requestPermissionsAsync();
+        if (motionStatus !== 'granted') {
+          console.error('Sensor permission is mandatory to use the app!');
+          throw new Error('Sensor permission is required to proceed.');
+        }
+      } catch (error) {
+        console.error('Error checking or requesting permissions:', error);
       }
+    };
+
+    requestPermissions().catch((error) => {
+      alert(error.message);
     });
+  }, []);
 
-    return () => subscription.remove();
-  }, [stepCount]); // Dependency ensures the latest step count is used
-
-  // Fetch today's steps when the app loads
   useEffect(() => {
     if (userId) {
-      fetchStepsForToday();
+      // Real-time listener for user data updates
+      const db = getDatabase(firebaseApp);
+      const userRef = ref(db, `users/${userId}`);
+      const unsubscribe = onValue(userRef, (snapshot) => {
+        if (snapshot.exists()) {
+          setUserData(snapshot.val());
+        } else {
+          console.log('No user data found.');
+        }
+      });
+
+      return () => unsubscribe();
     }
   }, [userId]);
 
-  // Fetch last 7 days of step and calorie data from Firebase
-  const fetchLast7DaysData = async () => {
-    const userStepsRef = ref(db, `steps/${userId}`);
-    try {
-      const snapshot = await get(userStepsRef);
-      const data = snapshot.val();
-
-      if (data) {
-        const sortedDates = Object.keys(data).sort((a, b) => {
-            // Sort the dates in descending order
-            return new Date(b).getTime() - new Date(a).getTime();; // b - a for descending order
-          });
-        const last7Days = sortedDates.slice(0,7).map((date) => ({
-          date,
-          steps: data[date].steps,
-          calories: data[date].calories,
-        }));
-        setLast7DaysData(last7Days);
-      }
-    } catch (error) {
-      console.error('Error fetching last 7 days data:', error);
-    }
-  };
-
-  // Call to fetch last 7 days of data when the component mounts
   useEffect(() => {
-    fetchLast7DaysData();
-  }, []);
+    if (userId) {
+      const fetchData = async () => {
+        const data = await fetchLast7DaysData(userId);
+        setLast7DaysData(data);
+      };
+      fetchData();
+    }
+  }, [userId]);
 
-  // Calculate the step percentage
-  const stepPercentage = (stepCount / stepGoal) * 100;
+  useEffect(() => {
+    if (userId) {
+      fetchStepsForToday(userId).then((data) => {
+        setStepCount(data.steps);
+        setCalories(data.calories);
+      });
+    }
+  }, [userId]);
 
-  // Dynamic font size for step count text based on step count value
-  const getStepCountFontSize = () => {
-    return stepCount > 100 ? 18 : 24; // Adjust font size based on step count
-  };
+  useEffect(() => {
+    if (userId) {
+      const subscription = Pedometer.watchStepCount((result) => {
+        if (result && result.steps !== undefined) {
+          saveStepsToFirebase(userId, result.steps, setStepCount, setCalories, userData.stepGoal);
+        } else {
+          console.error('Invalid step count result:', result);
+        }
+      });
+
+      return () => subscription.remove();
+    } else {
+      console.error('User ID is not available');
+    }
+  }, [userData, userId]);
+  
 
   return (
     <View style={styles.container}>
-      {/* Progress Section */}
       <View style={styles.progressContainer}>
         <CircularProgress
-          value={stepPercentage}
+          value={Math.min((stepCount / userData.stepGoal) * 100, 100)} // Cap the value at 100%
           radius={80}
           maxValue={100}
           showProgressValue={false}
           activeStrokeWidth={20}
           inActiveStrokeWidth={20}
           inActiveStrokeColor="#d3d3d3"
-          activeStrokeColor="#4caf50"
+          activeStrokeColor="#4caf50" // Always green after reaching the goal
         />
-        {/* Overlay for Step Count */}
         <View style={styles.overlay}>
-          <Text style={[styles.stepCount, { fontSize: getStepCountFontSize() }]}>
+          <Text style={[styles.stepCount, { fontSize: stepCount > 100 ? 18 : 24 }]}>
             {stepCount}
           </Text>
           <Text style={styles.stepLabel}>Steps</Text>
         </View>
       </View>
-      <Text style={styles.stepGoal}>Goal: {stepGoal} steps</Text>
-
-      {/* Calories Burned */}
+      <Text style={styles.stepGoal}>Goal: {userData.stepGoal} steps</Text>
       <View style={styles.caloriesContainer}>
-        <Text style={styles.caloriesText}>
-          Calories Burned Today: {calories.toFixed(2)} kcal
-        </Text>
+        <Text style={styles.caloriesText}>Calories Burned Today: {calories.toFixed(2)} kcal</Text>
       </View>
-
-      {/* Weekly Data */}
-      <Text style={styles.weeklyHeader}>Last 7 Days</Text>
       <FlatList
         data={last7DaysData}
         keyExtractor={(item) => item.date}
@@ -217,12 +187,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#000',
     textAlign: 'center',
-  },
-  weeklyHeader: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#000',
-    marginVertical: 10,
   },
   weeklyItem: {
     flexDirection: 'row',

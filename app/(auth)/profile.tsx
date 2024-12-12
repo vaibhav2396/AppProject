@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, TextInput, Button, StyleSheet } from 'react-native';
 import { getDatabase, ref, onValue, update, set } from 'firebase/database';
 import { useAuth } from '@clerk/clerk-expo';
-import firebaseApp from '../../firebaseConfig'
+import firebaseApp from '../../firebaseConfig';
 
 function Profile() {
     const { userId } = useAuth();
@@ -21,115 +21,138 @@ function Profile() {
         const db = getDatabase(firebaseApp);
         const userRef = ref(db, `users/${userId}`);
         onValue(userRef, (snapshot) => {
-          if (snapshot.exists()) {
-            setUserData(snapshot.val());
-            setIsInitialSetup(false);
-          } else {
-            setIsInitialSetup(true);
-          }
+            if (snapshot.exists()) {
+                setUserData(snapshot.val());
+                setIsInitialSetup(false);
+            } else {
+                setIsInitialSetup(true);
+            }
         });
-      }, [userId]);
+    }, [userId]);
 
-      const handleInputChange = (e:any) => {
-        setUserData({ ...userData, [e.target.name]: e.target.value });
-      };
-    
-      const handleSave = async () => {
+    const handleSave = async () => {
         const db = getDatabase(firebaseApp);
         const userRef = ref(db, `users/${userId}`);
         update(userRef, userData);
         setIsEditing(false);
-      };
-    
-      const handleInitialSave = async () => {
+    };
+
+    const handleInitialSave = async () => {
         const db = getDatabase(firebaseApp);
         const userRef = ref(db, `users/${userId}`);
         set(userRef, userData);
         setIsInitialSetup(false);
-      };
+    };
+
+    const userKeys: (keyof typeof userData)[] = [
+        'firstName',
+        'lastName',
+        'height',
+        'weight',
+        'weightGoal',
+        'stepGoal'
+    ];
 
     return (
         <View style={styles.container}>
-        {isEditing || isInitialSetup ? (
-            <View>
-            <TextInput
-                style={styles.inputField}
-                placeholder="First Name"
-                value={userData.firstName}
-                onChangeText={(text) => setUserData({ ...userData, firstName: text })}
-            />
-            <TextInput
-                style={styles.inputField}
-                placeholder="Last Name"
-                value={userData.lastName}
-                onChangeText={(text) => setUserData({ ...userData, lastName: text })}
-            />
-            <TextInput
-                style={styles.inputField}
-                placeholder="height"
-                value={userData.height}
-                onChangeText={(text) => setUserData({ ...userData, height: text })}
-            />
-            <TextInput
-                style={styles.inputField}
-                placeholder="weight"
-                value={userData.weight}
-                onChangeText={(text) => setUserData({ ...userData, weight: text })}
-            />
-            <TextInput
-                style={styles.inputField}
-                placeholder="weight Goal"
-                value={userData.weightGoal}
-                onChangeText={(text) => setUserData({ ...userData, weightGoal: text })}
-            />
-            <TextInput
-                style={styles.inputField}
-                placeholder="step Goal"
-                value={userData.stepGoal}
-                onChangeText={(text) => setUserData({ ...userData, stepGoal: text })}
-            />
-            
-            <Button title="Save" onPress={handleSave} />
-            </View>
-        ) : (
-            <View>
-            <Text style={styles.inputField}>First Name: {userData.firstName}</Text>
-            <Text style={styles.inputField}>Last Name: {userData.lastName}</Text>
-            <Text style={styles.inputField}>Height: {userData.height}</Text>
-            <Text style={styles.inputField}>Weight: {userData.weight}</Text>
-            <Text style={styles.inputField}>Weight Goal: {userData.weightGoal}</Text>
-            <Text style={styles.inputField}>Step Goal: {userData.stepGoal}</Text>
-            
-            {/* ... other fields ... */}
-            <Button title="Edit" onPress={() => setIsEditing(true)} />
-            </View>
-        )}
+            {isEditing || isInitialSetup ? (
+                <View style={styles.editContainer}>
+                    {userKeys.map((key) => (
+                        <View key={key} style={styles.inputWrapper}>
+                            <Text style={styles.editLabel}>{key.replace(/([A-Z])/g, ' $1').toUpperCase()}</Text>
+                            <TextInput
+                                style={styles.inputField}
+                                placeholder={key.replace(/([A-Z])/g, ' $1')}
+                                value={userData[key]}
+                                onChangeText={(text) => setUserData({ ...userData, [key]: text })}
+                            />
+                        </View>
+                    ))}
+                    <Button
+                        title={isInitialSetup ? "Save" : "Update"}
+                        onPress={isInitialSetup ? handleInitialSave : handleSave}
+                    />
+                </View>
+            ) : (
+                <View style={styles.viewContainer}>
+                    {userKeys.map((key) => (
+                        <View key={key} style={styles.infoCard}>
+                            <Text style={styles.label}>{key.replace(/([A-Z])/g, ' $1').toUpperCase()}</Text>
+                            <Text style={styles.value}>
+                                {key === 'height'
+                                    ? `${userData[key]} cm`
+                                    : key === 'weight' || key === 'weightGoal'
+                                    ? `${userData[key]} kg`
+                                    : userData[key]}
+                            </Text>
+                        </View>
+                    ))}
+                    <Button title="Edit" onPress={() => setIsEditing(true)} />
+                </View>
+            )}
         </View>
     );
 }
 
-
 const styles = StyleSheet.create({
     container: {
-      flex: 1,
-      justifyContent: 'center',
-      padding: 20,
+        flex: 1,
+        justifyContent: 'center',
+        alignItems: 'center',
+        padding: 20,
+        backgroundColor: '#f5f5f5',
+    },
+    editContainer: {
+        width: '100%',
+        alignItems: 'center',
+    },
+    viewContainer: {
+        width: '100%',
+        alignItems: 'center',
+    },
+    inputWrapper: {
+        width: '100%',
+        marginBottom: 10,
     },
     inputField: {
-      marginVertical: 4,
-      height: 50,
-      borderWidth: 1,
-      borderColor: '#6c47ff',
-      borderRadius: 4,
-      padding: 10,
-      backgroundColor: '#fff',
+        width: '100%',
+        padding: 10,
+        borderWidth: 1,
+        borderColor: '#6c47ff',
+        borderRadius: 4,
+        backgroundColor: '#fff',
     },
-    button: {
-      margin: 8,
-      alignItems: 'center',
+    editLabel: {
+        fontSize: 14,
+        fontWeight: 'bold',
+        marginBottom: 5,
+        color: '#333',
     },
-  });
+    infoCard: {
+        width: '80%',
+        marginVertical: 10,
+        padding: 15,
+        backgroundColor: '#fff',
+        borderRadius: 8,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.1,
+        shadowRadius: 5,
+        elevation: 3,
+        alignItems: 'center',
+    },
+    label: {
+        fontSize: 16,
+        fontWeight: 'bold',
+        color: '#333',
+        marginBottom: 5,
+        textAlign: 'center',
+    },
+    value: {
+        fontSize: 16,
+        color: '#666',
+        textAlign: 'center',
+    },
+});
 
 export default Profile;
-
-
