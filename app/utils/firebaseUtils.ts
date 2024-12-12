@@ -1,6 +1,6 @@
-// firebaseUtils.ts
+
 import { getDatabase, ref, update, get } from 'firebase/database';
-import { format } from 'date-fns'; // To format the date in 'YYYY-MM-DD'
+import { format } from 'date-fns';
 import firebaseApp from '../../firebaseConfig';
 import { calculateCalories } from './stepTrackerUtils';
 const db = getDatabase(firebaseApp);
@@ -19,20 +19,20 @@ interface StepData {
   
       if (data) {
         const sortedDates = Object.keys(data).sort((a, b) => {
-          return new Date(b).getTime() - new Date(a).getTime(); // Sort descending by date
+          return new Date(b).getTime() - new Date(a).getTime();
         });
         const last7Days = sortedDates.slice(0, 7).map((date) => ({
           date,
           steps: data[date].steps,
           calories: data[date].calories,
         }));
-        return last7Days; // Ensure the return type is Promise<StepData[]>
+        return last7Days;
       }
   
-      return []; // Return an empty array if no data found
+      return [];
     } catch (error) {
       console.error('Error fetching last 7 days data:', error);
-      return []; // Return an empty array in case of error
+      return []; 
     }
   };
 
@@ -68,6 +68,7 @@ export const fetchStepsForToday = async (userId: string) => {
   }
 };
 
+  
 export const saveStepsToFirebase = (
     userId: string,
     newSteps: number,
@@ -77,49 +78,52 @@ export const saveStepsToFirebase = (
   ) => {
     const currentDate = new Date().toISOString().split('T')[0]; // Get 'yyyy-mm-dd' format
   
-    // Fetch user data (weight and height) from the 'users' table
+    if (!userId) {
+      console.error('User ID is missing.');
+      return;
+    }
+  
     const userRef = ref(db, `users/${userId}`);
   
-    get(userRef).then(userSnapshot => {
-      const userData = userSnapshot.val();
-      
-      // Ensure user data exists and contains weight and height
-      if (userData && userData.weight && userData.height) {
-        const weight = userData.weight; // Weight from the user's data
-        const height = userData.height; // Height from the user's data
-        
-        // Fetch the current step count from the database
-        const userStepsRef = ref(db, `steps/${userId}/${currentDate}`);
-        
-        get(userStepsRef).then(snapshot => {
-          const existingData = snapshot.val();
-          const currentStepCount = existingData ? existingData.steps : 0;
+    get(userRef)
+      .then((userSnapshot) => {
+        const userData = userSnapshot.val();
   
-          const totalSteps = currentStepCount + newSteps; // Accumulate steps
-          const totalCalories = calculateCalories(totalSteps, weight, height); // Use weight and height for calorie calculation
+        if (userData && userData.weight && userData.height) {
+          const { weight, height } = userData;
   
-          // Update the database with accumulated steps and calories
-          update(userStepsRef, { steps: totalSteps, calories: totalCalories })
-            .then(() => {
-              setStepCount(totalSteps);
-              setCalories(totalCalories);
+          const userStepsRef = ref(db, `steps/${userId}/${currentDate}`);
   
-              // If the step goal is reached, log it
-              if (totalSteps >= stepGoal) {
-                console.log('You achieved your step goal for today');
-              }
+          get(userStepsRef)
+            .then((snapshot) => {
+              const existingData = snapshot.val();
+              const currentStepCount = existingData ? existingData.steps : 0;
+  
+              const totalSteps = currentStepCount + newSteps;
+              const totalCalories = calculateCalories(totalSteps, weight, height);
+  
+              update(userStepsRef, { steps: totalSteps, calories: totalCalories })
+                .then(() => {
+                  setStepCount(totalSteps);
+                  setCalories(totalCalories);
+  
+                  if (totalSteps >= stepGoal) {
+                    console.log('You achieved your step goal for today');
+                  }
+                })
+                .catch((error) => {
+                  console.error('Error saving step data:', error);
+                });
             })
             .catch((error) => {
-              console.error('Error saving step data:', error);
+              console.error('Error fetching current steps:', error);
             });
-        }).catch((error) => {
-          console.error('Error fetching current steps:', error);
-        });
-      } else {
-        console.error('User data not found or missing weight/height');
-      }
-    }).catch((error) => {
-      console.error('Error fetching user data:', error);
-    });
+        } else {
+          console.error('User data not found or missing weight/height.');
+        }
+      })
+      .catch((error) => {
+        console.error('Error fetching user data:', error);
+      });
   };
   

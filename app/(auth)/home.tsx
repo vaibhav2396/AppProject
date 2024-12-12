@@ -85,14 +85,19 @@ const Home = () => {
 
   useEffect(() => {
     if (userId) {
+      let lastStepCount = 0;
+  
       const subscription = Pedometer.watchStepCount((result) => {
         if (result && result.steps !== undefined) {
-          saveStepsToFirebase(userId, result.steps, setStepCount, setCalories, userData.stepGoal);
+          const newSteps = result.steps - lastStepCount; // Calculate incremental steps
+          lastStepCount = result.steps; // Update last known step count
+  
+          saveStepsToFirebase(userId, newSteps, setStepCount, setCalories, userData.stepGoal);
         } else {
           console.error('Invalid step count result:', result);
         }
       });
-
+  
       return () => subscription.remove();
     } else {
       console.error('User ID is not available');
