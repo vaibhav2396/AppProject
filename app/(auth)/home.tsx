@@ -1,13 +1,12 @@
-
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList } from 'react-native';
+import { View, Text, StyleSheet, FlatList, Dimensions } from 'react-native';
 import { Pedometer } from 'expo-sensors';
 import { useAuth } from '@clerk/clerk-expo';
 import CircularProgress from 'react-native-circular-progress-indicator';
 import { fetchStepsForToday, saveStepsToFirebase, fetchLast7DaysData } from '../utils/firebaseUtils';
-import { calculateCalories } from '../utils/stepTrackerUtils';
 import { getDatabase, ref, onValue } from 'firebase/database';
 import firebaseApp from '../../firebaseConfig';
+import { LineChart } from 'react-native-chart-kit';
 
 interface Last7DaysData {
   date: string;
@@ -49,7 +48,6 @@ const Home = () => {
 
   useEffect(() => {
     if (userId) {
-      // Real-time listener for user data updates
       const db = getDatabase(firebaseApp);
       const userRef = ref(db, `users/${userId}`);
       const unsubscribe = onValue(userRef, (snapshot) => {
@@ -86,61 +84,114 @@ const Home = () => {
   useEffect(() => {
     if (userId) {
       let lastStepCount = 0;
-  
+
       const subscription = Pedometer.watchStepCount((result) => {
         if (result && result.steps !== undefined) {
-          const newSteps = result.steps - lastStepCount; // Calculate incremental steps
-          lastStepCount = result.steps; // Update last known step count
-  
+          const newSteps = result.steps - lastStepCount;
+          lastStepCount = result.steps;
+
           saveStepsToFirebase(userId, newSteps, setStepCount, setCalories, userData.stepGoal);
         } else {
           console.error('Invalid step count result:', result);
         }
       });
-  
+
       return () => subscription.remove();
     } else {
       console.error('User ID is not available');
     }
   }, [userData, userId]);
-  
+
+  const processedData = last7DaysData.map((item) => ({
+    date: item.date.slice(-2), // Check if this format works
+    steps: typeof item.steps === 'number' && !isNaN(item.steps) ? item.steps : 0,
+    calories: typeof item.calories === 'number' && !isNaN(item.calories) ? item.calories : 0,
+  })).sort((a, b) => {
+    // Type assertion to ensure the date string is treated as a valid date
+    return new Date(a.date).getTime() - new Date(b.date).getTime(); // Use getTime() to compare dates
+  });
+
+  const labels = processedData.map((item) => item.date);
+  const stepsData = processedData.map((item) => (typeof item.steps === 'number' && !isNaN(item.steps) ? item.steps : 0));
+  const stepGoalArray = Array(processedData.length).fill(userData.stepGoal);
 
   return (
-    <View style={styles.container}>
-      <View style={styles.progressContainer}>
-        <CircularProgress
-          value={Math.min((stepCount / userData.stepGoal) * 100, 100)} // Cap the value at 100%
-          radius={80}
-          maxValue={100}
-          showProgressValue={false}
-          activeStrokeWidth={20}
-          inActiveStrokeWidth={20}
-          inActiveStrokeColor="#d3d3d3"
-          activeStrokeColor="#4caf50" // Always green after reaching the goal
-        />
-        <View style={styles.overlay}>
-          <Text style={[styles.stepCount, { fontSize: stepCount > 100 ? 18 : 24 }]}>
-            {stepCount}
-          </Text>
-          <Text style={styles.stepLabel}>Steps</Text>
-        </View>
-      </View>
-      <Text style={styles.stepGoal}>Goal: {userData.stepGoal} steps</Text>
-      <View style={styles.caloriesContainer}>
-        <Text style={styles.caloriesText}>Calories Burned Today: {calories.toFixed(2)} kcal</Text>
-      </View>
-      <FlatList
-        data={last7DaysData}
-        keyExtractor={(item) => item.date}
-        renderItem={({ item }) => (
-          <View style={styles.weeklyItem}>
-            <Text style={styles.weeklyDay}>{item.date}</Text>
-            <Text style={styles.weeklySteps}>{item.steps} steps</Text>
-            <Text style={styles.weeklyCalories}>{item.calories.toFixed(2)} kcal</Text>
+    <FlatList
+      data={last7DaysData}
+      keyExtractor={(item) => item.date}
+      ListHeaderComponent={() => (
+        <View style={styles.container}>
+          <View style={styles.progressContainer}>
+            <CircularProgress
+              value={Math.min((stepCount / userData.stepGoal) * 100, 100)} 
+              radius={80}
+              maxValue={100}
+              showProgressValue={false}
+              activeStrokeWidth={20}
+              inActiveStrokeWidth={20}
+              inActiveStrokeColor="#d3d3d3"
+              activeStrokeColor="#4caf50"
+            />
+            <View style={styles.overlay}>
+              <Text style={[styles.stepCount, { fontSize: stepCount > 100 ? 18 : 24 }]}>
+                {stepCount}
+              </Text>
+              <Text style={styles.stepLabel}>Steps</Text>
+            </View>
           </View>
-        )}
-      />
-    </View>
+          <Text style={styles.stepGoal}>Goal: {userData.stepGoal} steps</Text>
+          <View style={styles.caloriesContainer}>
+            <Text style={styles.caloriesText}>Calories Burned Today: {calories.toFixed(2)} kcal</Text>
+          </View>
+
+          <View style={styles.graphContainer}>
+            <Text style={styles.graphTitle}>Weekly Progress</Text>
+            {labels.length > 0 && stepsData.length > 0 && stepGoalArray.length > 0 ? (
+              <LineChart
+                data={{
+                  labels: labels,
+                  datasets: [
+                    {
+                      data: stepsData,
+                      color: () => '#4caf50',
+                    },
+                    {
+                      data: stepGoalArray,
+                      color: () => '#ff0000', 
+                      withDots: false,
+                    },
+                  ],
+                }}
+                width={Dimensions.get('window').width - 40}
+                height={220}
+                chartConfig={{
+                  backgroundColor: '#f5f5f5',
+                  backgroundGradientFrom: '#ffffff',
+                  backgroundGradientTo: '#e0e0e0',
+                  decimalPlaces: 0,
+                  color: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                  labelColor: (opacity = 1) => `rgba(0, 0, 0, ${opacity})`,
+                }}
+                style={{
+                  marginVertical: 20,
+                  borderRadius: 16,
+                }}
+              />
+            ) : (
+              <Text style={styles.noDataText}>No data available for chart</Text>
+            )}
+          </View>
+          <Text style={styles.graphTitle}>Past 7 Days</Text>
+        </View>
+      )}
+      renderItem={({ item }) => (
+        <View style={styles.weeklyItem}>
+          <Text style={styles.weeklyDay}>{item.date}</Text>
+          <Text style={styles.weeklySteps}>{item.steps} steps</Text>
+          <Text style={styles.weeklyCalories}>{item.calories} kcal</Text>
+        </View>
+      )}
+    />
   );
 };
 
@@ -183,40 +234,60 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     elevation: 3,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 1,
   },
   caloriesText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#333',
+  },
+  graphContainer: {
+    marginVertical: 20,
+  },
+  graphTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    textAlign: 'center',
+  },
+  noDataText: {
+    fontSize: 16,
+    color: '#777',
     textAlign: 'center',
   },
   weeklyItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
     backgroundColor: '#fff',
-    padding: 10,
+    padding: 15,
     marginVertical: 5,
     borderRadius: 10,
-    elevation: 2,
+    elevation: 3,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
-    shadowRadius: 3,
+    shadowRadius: 1,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
   },
   weeklyDay: {
-    fontSize: 14,
-    color: '#555',
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#333',
+    flex: 1,
   },
   weeklySteps: {
     fontSize: 14,
-    color: '#4caf50',
+    color: '#555',
+    flex: 1,
+    textAlign: 'center',
   },
   weeklyCalories: {
     fontSize: 14,
-    color: '#ff9800',
+    color: '#555',
+    flex: 1, 
+    textAlign: 'right',
   },
 });
 
